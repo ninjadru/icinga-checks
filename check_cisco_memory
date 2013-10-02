@@ -1,0 +1,131 @@
+#!/bin/bash
+# check_cisco_memory
+# Description : Check the free memory of a Cisco device  
+# Version : 2.0
+# Author : Dru Streicher
+# Licence : GPLv2
+# Alot of this is based off a memory check by Yoann Lamy
+
+# Commands
+CMD_BASENAME="/usr/bin/basename"
+CMD_SNMPGET="/usr/bin/snmpget"
+CMD_SNMPWALK="/usr/bin/snmpwalk"
+CMD_EXPR="/usr/bin/expr"
+# Script name
+SCRIPTNAME=`$CMD_BASENAME $0`
+# Version
+VERSION="2.0"
+
+# Plugin return codes
+STATE_OK=0
+STATE_WARNING=1
+STATE_CRITICAL=2
+STATE_UNKNOWN=3
+
+# OID's
+OID_USED_MEMORY="1.3.6.1.4.1.9.9.48.1.1.1.5.1"
+OID_FREE_MEMORY="1.3.6.1.4.1.9.9.48.1.1.1.6.1"
+
+# Default variables
+DESCRIPTION="Unknown"
+STATE=$STATE_UNKNOWN
+
+# Default options
+COMMUNITY="public"
+HOSTNAME="127.0.0.1"
+TYPE="firmware"
+DISK=1
+WARNING=0
+CRITICAL=0
+
+# Option processing
+print_usage() {
+  echo "Usage: ./check_cisco_memory -H 127.0.0.1 -C public -w 10 -c 5"
+  echo "  $SCRIPTNAME -H ADDRESS"
+  echo "  $SCRIPTNAME -C STRING"
+  echo "  $SCRIPTNAME -w INTEGER"
+  echo "  $SCRIPTNAME -c INTEGER"
+  echo "  $SCRIPTNAME -p INTEGER"
+  echo "  $SCRIPTNAME -h"
+  echo "  $SCRIPTNAME -V"
+}
+
+print_version() {
+  echo $SCRIPTNAME version $VERSION
+  echo ""
+  echo "This nagios plugin comes with ABSOLUTELY NO WARRANTY."
+  echo "You may redistribute copies of this plugin under the terms of the GNU General Public License v2."
+}
+print_help() {
+  print_version
+  echo ""
+  print_usage
+  echo ""
+  echo "Check the memory of a Cisco device "
+  echo ""
+  echo "-H ADDRESS"
+  echo "   Name or IP address of host (default: 127.0.0.1)"
+  echo "-C STRING"
+  echo "   Community name for the host's SNMP agent (default: public)"
+  echo "-w INTEGER"
+  echo "   Warning level"
+  echo "-c INTEGER"
+  echo "   Critical level"
+  echo "-h"
+  echo "   Print this help screen"
+  echo "-V"
+  echo "   Print version and license information"
+  echo ""
+  echo ""
+  echo "This plugin uses the 'snmpget' command and the 'snmpwalk' command included with the NET-SNMP package."
+  echo "This plugin support performance data output."
+  echo "If the percentage of the warning level and the critical level are set to 0, then the script returns an OK state."
+}
+
+
+Take the input and turn it to variables:
+while getopts H:C:t:d:w:c:p:hV OPT
+do
+  case $OPT in
+    H) HOSTNAME="$OPTARG" ;;
+    C) COMMUNITY="$OPTARG" ;;
+    w) WARNING="$OPTARG" ;;
+    c) CRITICAL="$OPTARG" ;;
+    p) PORT="$OPTARG" ;;
+    h)
+      print_help
+      exit $STATE_UNKNOWN
+      ;;
+    V)
+      print_version
+      exit $STATE_UNKNOWN
+      ;;
+   esac
+done
+
+# Plugin processing
+  USED=`$CMD_SNMPGET -t 2 -r 2 -v 1 -c $COMMUNITY -Ovq $HOSTNAME "${OID_USED_MEMORY}"`
+  FREE=`$CMD_SNMPGET -t 2 -r 2 -v 1 -c $COMMUNITY -Ovq $HOSTNAME "${OID_FREE_MEMORY}"`
+
+  TOTAL_MEM=$(echo "$USED + $FREE" | bc)
+
+  PERCENT_FREE=$(echo "scale=2; $FREE / $TOTAL_MEM * 100" | bc | sed s/\\.[0-9]\\+//)
+
+  if [ "$PERCENT_FREE" -lt "$WARNING" ]; then
+    STATE=$STATE_OK;
+    STATE_DESC="OK"
+  elif [ "$PERCENT_FREE" -gt "$WARNING" ] && [ "$PERCENT_FREE" -lt "$CRITICAL" ]; then
+    STATE=$STATE_WARNING;
+    STATE_DESC="WARNING"
+  elif [ "$PERCENT_FREE" -gt "$WARNING" ] && [ "$PERCENT_FREE" -gt "$CRITICAL" ]; then
+    STATE=$STATE_CRITICAL;
+    STATE_DESC="CRITICAL"
+  else
+   STATE=$STATE_UNKNOWN;
+    STATE_DESC="UNKNOWN"
+  fi
+
+  DESCRIPTION="Memory $PERCENT_FREE% Free";
+
+echo "$STATE_DESC : $DESCRIPTION"
+exit $STATE
